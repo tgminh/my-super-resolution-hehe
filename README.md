@@ -1,13 +1,6 @@
 # FSRCNN
 
-This repository is implementation of the ["Accelerating the Super-Resolution Convolutional Neural Network"](https://arxiv.org/abs/1608.00367).
-
-<center><img src="./thumbnails/fig1.png"></center>
-
-## Differences from the original
-
-- Added the zero-padding
-- Used the Adam instead of the SGD
+This repository is inspired by: https://github.com/yjn870/FSRCNN-pytorch.git.
 
 ## Requirements
 
