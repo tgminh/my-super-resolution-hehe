@@ -5,7 +5,7 @@ import numpy as np
 def calc_patch_size(func):
     def wrapper(args):
         if args.scale == 2:
-            args.patch_size = 10
+            args.patch_size = 20
         elif args.scale == 3:
             args.patch_size = 7
         elif args.scale == 4:
