@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FSRCNN
 
 This repository is implementation of the ["Accelerating the Super-Resolution Convolutional Neural Network"](https://arxiv.org/abs/1608.00367).
@@ -8,6 +9,16 @@ This repository is implementation of the ["Accelerating the Super-Resolution Con
 
 - Added the zero-padding
 - Used the Adam instead of the SGD
+=======
+conda activate fast
+
+<<<<<<<< HEAD:README.md
+python full2.py --weights-file fsrcnn_x2.pth --image-file data/frame001_750.png --scale 2 --device cuda --tiles 5 --overlap 20
+
+python full.py --weights-file fsrcnn_x2.pth --image-file data/frame001_750.png --scale 2 --device cpu --tiles 5
+========
+This repository is inspired by: https://github.com/yjn870/FSRCNN-pytorch.git.
+>>>>>>> 61d4c94003efac4e80c073140aab28b874bf3340
 
 ## Requirements
 
@@ -108,3 +119,7 @@ PSNR was calculated on the Y channel.
     	</td>
     </tr>
 </table>
+<<<<<<< HEAD
+=======
+>>>>>>>> 61d4c94003efac4e80c073140aab28b874bf3340:old_readme.md
+>>>>>>> 61d4c94003efac4e80c073140aab28b874bf3340
