@@ -23,86 +23,134 @@ def load_model(weights_path, scale, device):
     return model
 
 
-def process_image_tiled(image_path, model, device, scale, tiles):
-    # Load HR image
-    image = pil_image.open(image_path).convert('RGB')
+def process_image_tiled(image_path, ref_path, model, device, scale, tiles):
 
-    image_width = (image.width // scale) * scale
-    image_height = (image.height // scale) * scale
-    hr = image.resize((image_width, image_height), resample=pil_image.BICUBIC)
+    # --------------------------------------------
+    # Load LR image
+    # --------------------------------------------
+    lr_img = pil_image.open(image_path).convert("RGB")
+    lr_w, lr_h = lr_img.width, lr_img.height
 
-    # Create LR and bicubic baseline
-    lr = hr.resize((hr.width // scale, hr.height // scale), resample=pil_image.BICUBIC)
-    bicubic = lr.resize((lr.width * scale, lr.height * scale), resample=pil_image.BICUBIC)
-    bicubic.save(image_path.replace('.', f'_bicubic_x{scale}.'))
+    # Convert LR to YCbCr
+    lr_y, lr_ycbcr = preprocess(lr_img, device)
 
-    lr_y, _ = preprocess(lr, device)
-    hr_y, _ = preprocess(hr, device)
-    _, ycbcr = preprocess(bicubic, device)
+    # ---- FIX: accept numpy or torch ----
+    if isinstance(lr_ycbcr, torch.Tensor):
+        lr_ycbcr_np = lr_ycbcr.cpu().numpy()
+    else:
+        lr_ycbcr_np = lr_ycbcr
 
-    # Divide into tiles
+    # HR output resolution
+    HR_H = lr_h * scale
+    HR_W = lr_w * scale
+
+    preds_full = torch.zeros((1, 1, HR_H, HR_W), device=device)
+
+    # --------------------------------------------
+    # Load reference HR image
+    # --------------------------------------------
+    reference = pil_image.open(ref_path).convert("RGB")
+    reference = reference.resize((HR_W, HR_H), pil_image.BICUBIC)
+    reference_y, _ = preprocess(reference, device)
+
+    # --------------------------------------------
+    # Tiled inference
+    # --------------------------------------------
     _, _, H, W = lr_y.shape
     tile_h = math.ceil(H / tiles)
     tile_w = math.ceil(W / tiles)
 
-    preds_full = torch.zeros((1, 1, H * scale, W * scale), device=device)
     total_infer_time = 0.0
 
     for i in range(tiles):
         for j in range(tiles):
             y0, y1 = i * tile_h, min((i + 1) * tile_h, H)
             x0, x1 = j * tile_w, min((j + 1) * tile_w, W)
+
             tile = lr_y[:, :, y0:y1, x0:x1]
 
-            if device.type == 'cuda':
+            if device.type == "cuda":
                 torch.cuda.synchronize()
-            start = time.perf_counter()
+            t0 = time.perf_counter()
+
             with torch.no_grad():
                 pred = model(tile).clamp(0.0, 1.0)
-            if device.type == 'cuda':
+
+            if device.type == "cuda":
                 torch.cuda.synchronize()
-            end = time.perf_counter()
+            t1 = time.perf_counter()
 
-            infer_time = (end - start) * 1000
-            total_infer_time += infer_time
+            total_infer_time += (t1 - t0) * 1000
 
-            preds_full[:, :, y0 * scale:y1 * scale, x0 * scale:x1 * scale] = pred
+            preds_full[
+                :, :,
+                y0 * scale : y1 * scale,
+                x0 * scale : x1 * scale
+            ] = pred
 
-    avg_infer_time = total_infer_time / (tiles * tiles)
-    print(f'Average inference time per tile: {avg_infer_time:.2f} ms')
-    print(f'Total inference time (all tiles): {total_infer_time:.2f} ms')
+    print(f"[INFO] Avg inference/tile: {total_infer_time/(tiles*tiles):.2f} ms")
+    print(f"[INFO] Total inference: {total_infer_time:.2f} ms")
 
-    psnr = calc_psnr(hr_y, preds_full)
-    print(f'PSNR: {psnr:.2f} dB')
+    # --------------------------------------------
+    # PSNR (Y channel)
+    # --------------------------------------------
+    psnr = calc_psnr(reference_y, preds_full)
+    print(f"[INFO] PSNR vs reference: {psnr:.2f} dB")
 
-    preds = preds_full.mul(255.0).cpu().numpy().squeeze(0).squeeze(0)
-    output = np.array([preds, ycbcr[..., 1], ycbcr[..., 2]]).transpose([1, 2, 0])
-    output = np.clip(convert_ycbcr_to_rgb(output), 0.0, 255.0).astype(np.uint8)
-    output = pil_image.fromarray(output)
-    output.save(image_path.replace('.', f'_fsrcnn_tile{tiles}_x{scale}.'))
+    # --------------------------------------------
+    # COLOR RESTORATION
+    # --------------------------------------------
+
+    # Predicted Y
+    pred_y = preds_full.mul(255.0).cpu().numpy().squeeze()
+
+    # Upscale Cb & Cr by bicubic
+    cb = pil_image.fromarray(lr_ycbcr_np[..., 1]).resize((HR_W, HR_H), pil_image.BICUBIC)
+    cr = pil_image.fromarray(lr_ycbcr_np[..., 2]).resize((HR_W, HR_H), pil_image.BICUBIC)
+
+    cb = np.array(cb)
+    cr = np.array(cr)
+
+    # Merge Y Cb Cr
+    ycbcr = np.stack([pred_y, cb, cr], axis=2)
+
+    # Convert to RGB
+    rgb = convert_ycbcr_to_rgb(ycbcr)
+    rgb = np.clip(rgb, 0, 255).astype(np.uint8)
+
+    # Save final output
+    output_img = pil_image.fromarray(rgb)
+    out_path = image_path.replace('.', f'_fsrcnn_x{scale}.')
+    output_img.save(out_path)
+
+    print(f"[INFO] Saved COLOR output → {out_path}")
+
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights-file', type=str, required=True)
-    parser.add_argument('--image-file', type=str, required=True)
-    parser.add_argument('--scale', type=int, default=3)
-    parser.add_argument('--tiles', type=int, default=1, help='Number of tiles per dimension (e.g., 2 = 2x2)')
-    parser.add_argument('--device', type=str,
-                        default='cuda' if torch.cuda.is_available() else 'cpu',
-                        choices=['cpu', 'cuda'],
-                        help='Device to run on')
-    args = parser.parse_args()
+    parser.add_argument("--weights-file", type=str, required=True)
+    parser.add_argument("--image-file", type=str, required=True)
+    parser.add_argument("--reference-file", type=str, required=True)
+    parser.add_argument("--scale", type=int, default=3)
+    parser.add_argument("--tiles", type=int, default=1)
+    parser.add_argument("--device", type=str,
+                        default="cuda" if torch.cuda.is_available() else "cpu",
+                        choices=["cpu", "cuda"])
 
+    args = parser.parse_args()
     cudnn.benchmark = True
     device = torch.device(args.device)
+
     model = load_model(args.weights_file, args.scale, device)
 
-    total_start = time.perf_counter()
-    process_image_tiled(args.image_file, model, device, args.scale, args.tiles)
-    total_end = time.perf_counter()
-    print(f'Total elapsed time (including I/O & preprocessing): {(total_end - total_start):.2f} s')
+    start = time.perf_counter()
+    process_image_tiled(args.image_file, args.reference_file,
+                        model, device, args.scale, args.tiles)
+    end = time.perf_counter()
+
+    print(f"[INFO] Total time: {end - start:.2f} sec")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
