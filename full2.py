@@ -23,7 +23,7 @@ def load_model(weights_path, scale, device, use_jit=False, use_fp16=True):
         model.half()            # use FP16 for faster inference on GPU
 
     if use_jit:
-        # trace with a small example shape; we'll re-trace if tile sizes bigger than example
+        # trace with a small example shape
         example = torch.randn(1, 1, 64, 64).to(device)
         if device.type == 'cuda' and use_fp16:
             example = example.half()
@@ -34,19 +34,24 @@ def load_model(weights_path, scale, device, use_jit=False, use_fp16=True):
 
     return model
 
-def process_image_tiled_batched(image_path, model, device, scale, tiles):
-    # Load HR image and create LR (bicubic) as before
-    image = pil_image.open(image_path).convert('RGB')
-    image_width = (image.width // scale) * scale
-    image_height = (image.height // scale) * scale
-    hr = image.resize((image_width, image_height), resample=pil_image.BICUBIC)
-    lr = hr.resize((hr.width // scale, hr.height // scale), resample=pil_image.BICUBIC)
-    bicubic = lr.resize((lr.width * scale, lr.height * scale), resample=pil_image.BICUBIC)
-    bicubic.save(image_path.replace('.', f'_bicubic_x{scale}.'))
+def process_image_tiled_batched(image_path, ref_path, model, device, scale, tiles):
+    # 1. Load Input Image (Treat as Low Resolution)
+    lr = pil_image.open(image_path).convert('RGB')
+    
+    # Calculate target HR resolution based on scale
+    target_w = lr.width * scale
+    target_h = lr.height * scale
+    
+    # 2. Upscale Chroma (CbCr) using Bicubic (Standard SR approach)
+    # We resize LR -> HR dimension directly for the color channels
+    bicubic = lr.resize((target_w, target_h), resample=pil_image.BICUBIC)
+    # Optional: Save bicubic for visual comparison
+    # bicubic.save(image_path.replace('.', f'_bicubic_x{scale}.'))
 
-    # Y channel tensors on target device (single preprocess call)
+    # 3. Preprocess Input (LR) -> Tensor
     lr_y, _ = preprocess(lr, device)   # shape (1,1,H_lr,W_lr)
-    hr_y, _ = preprocess(hr, device)
+    
+    # Preprocess Bicubic -> used later to merge CbCr channels
     _, ycbcr = preprocess(bicubic, device)
 
     # tile geometry (LR domain)
@@ -79,7 +84,6 @@ def process_image_tiled_batched(image_path, model, device, scale, tiles):
         pad_h = max_h - h_c
         pad_w = max_w - w_c
         # pad right and bottom using reflection to avoid border artifacts
-        # pad format: (left, right, top, bottom)
         padded = F.pad(t, (0, pad_w, 0, pad_h), mode='reflect')
         padded_tiles.append(padded)
 
@@ -87,7 +91,6 @@ def process_image_tiled_batched(image_path, model, device, scale, tiles):
     batch = torch.cat(padded_tiles, dim=0).to(device)   # shape (N,1,max_h,max_w)
 
     # if model is half, convert batch to half
-    # detection: if model dtype exists, check first param dtype; fallback to fp32
     first_param = None
     try:
         first_param = next(model.parameters())
@@ -109,6 +112,7 @@ def process_image_tiled_batched(image_path, model, device, scale, tiles):
     total_model_ms = (t1 - t0) * 1000.0
 
     # Assemble outputs into full HR tensor
+    # Note: Output size is Input size * scale
     preds_full = torch.zeros((1,1,H*scale,W*scale), device=device, dtype=preds.dtype)
     idx = 0
     for (y0,y1,x0,x1) in coords:
@@ -120,9 +124,22 @@ def process_image_tiled_batched(image_path, model, device, scale, tiles):
         preds_full[:, :, oy0:oy1, ox0:ox1] = pred_tile
         idx += 1
 
-    # compute PSNR (hr_y and preds_full must be same dtype; convert to float32)
-    psnr_val = calc_psnr(hr_y.float(), preds_full.float())
-    print(f'PSNR: {psnr_val:.2f} dB')
+    # 4. PSNR Calculation (Only if Reference is provided)
+    if ref_path is not None:
+        if os.path.exists(ref_path):
+            ref_img = pil_image.open(ref_path).convert('RGB')
+            # Ensure reference matches the output dimensions for strict PSNR calculation
+            if ref_img.size != (target_w, target_h):
+                ref_img = ref_img.resize((target_w, target_h), resample=pil_image.BICUBIC)
+            
+            ref_y, _ = preprocess(ref_img, device)
+            
+            # Compute PSNR (convert both to float32 for calculation)
+            psnr_val = calc_psnr(ref_y.float(), preds_full.float())
+            print(f'PSNR: {psnr_val:.2f} dB')
+        else:
+            print(f"[WARNING] Reference file not found at {ref_path}")
+
     print(f'Model (batched) time: {total_model_ms:.2f} ms for {len(coords)} tiles')
     print(f'Avg per-tile (batched): {total_model_ms / len(coords):.2f} ms')
 
@@ -130,12 +147,16 @@ def process_image_tiled_batched(image_path, model, device, scale, tiles):
     preds_np = (preds_full.mul(255.0).cpu().numpy().squeeze(0).squeeze(0)).astype(np.uint8)
     out = np.array([preds_np, ycbcr[...,1], ycbcr[...,2]]).transpose([1,2,0])
     out = np.clip(convert_ycbcr_to_rgb(out), 0.0, 255.0).astype(np.uint8)
-    pil_image.fromarray(out).save(image_path.replace('.', f'_fsrcnn_tile{tiles}_batched_x{scale}.'))
+    
+    save_path = image_path.replace('.', f'_fsrcnn_f2_x{scale}.')
+    pil_image.fromarray(out).save(save_path)
+    print(f"Saved inference result to: {save_path}")
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights-file', type=str, required=True)
-    parser.add_argument('--image-file', type=str, required=True)
+    parser.add_argument('--image-file', type=str, required=True, help="Path to input (LR) image")
+    parser.add_argument('--reference-file', type=str, default=None, help="Path to reference (HR) image for PSNR calculation")
     parser.add_argument('--scale', type=int, default=3)
     parser.add_argument('--tiles', type=int, default=1, help='Number of tiles per side (2->2x2)')
     parser.add_argument('--device', type=str,
@@ -146,10 +167,12 @@ def main():
 
     cudnn.benchmark = True
     device = torch.device(args.device)
+    
+    # Scale is now used to initialize the model correctly
     model = load_model(args.weights_file, args.scale, device, use_jit=args.jit, use_fp16=(device.type=='cuda'))
 
     t0 = time.perf_counter()
-    process_image_tiled_batched(args.image_file, model, device, args.scale, args.tiles)
+    process_image_tiled_batched(args.image_file, args.reference_file, model, device, args.scale, args.tiles)
     t1 = time.perf_counter()
     print(f'Total elapsed (incl I/O): {(t1-t0):.2f} s')
 

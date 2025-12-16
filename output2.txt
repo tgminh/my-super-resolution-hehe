@@ -1,0 +1,67 @@
+PSNR and time results
+=====================
+
+device=cuda tiles=1
+PSNR: 39.13 dB
+Model batched time: 780.32 ms for
+
+device=cuda tiles=2
+PSNR: 39.12 dB
+Model batched time: 704.21 ms for
+
+device=cuda tiles=3
+PSNR: 39.12 dB
+Model batched time: 604.38 ms for
+
+device=cuda tiles=4
+PSNR: 39.11 dB
+Model batched time: 633.76 ms for
+
+device=cuda tiles=5
+PSNR: 39.11 dB
+Model batched time: 608.06 ms for
+
+device=cuda tiles=6
+PSNR: 39.09 dB
+Model batched time: 582.77 ms for
+
+device=cuda tiles=7
+PSNR: 39.10 dB
+Model batched time: 567.68 ms for
+
+device=cuda tiles=8
+PSNR: 39.10 dB
+Model batched time: 574.53 ms for
+
+device=cpu tiles=1
+PSNR: 39.14 dB
+Model batched time: 58.88 ms for
+
+device=cpu tiles=2
+PSNR: 39.13 dB
+Model batched time: 55.59 ms for
+
+device=cpu tiles=3
+PSNR: 39.12 dB
+Model batched time: 57.50 ms for
+
+device=cpu tiles=4
+PSNR: 39.12 dB
+Model batched time: 53.94 ms for
+
+device=cpu tiles=5
+PSNR: 39.11 dB
+Model batched time: 58.44 ms for
+
+device=cpu tiles=6
+PSNR: 39.09 dB
+Model batched time: 56.70 ms for
+
+device=cpu tiles=7
+PSNR: 39.11 dB
+Model batched time: 60.48 ms for
+
+device=cpu tiles=8
+PSNR: 39.10 dB
+Model batched time: 59.23 ms for
+

@@ -1,0 +1,67 @@
+Inference Results
+=================
+
+device=cuda tiles=1
+Model batched time: 1030.61 ms
+PSNR: 39.14 dB
+
+device=cuda tiles=2
+Model batched time: 693.12 ms
+PSNR: 39.13 dB
+
+device=cuda tiles=3
+Model batched time: 573.91 ms
+PSNR: 39.12 dB
+
+device=cuda tiles=4
+Model batched time: 571.01 ms
+PSNR: 39.12 dB
+
+device=cuda tiles=5
+Model batched time: 547.74 ms
+PSNR: 39.11 dB
+
+device=cuda tiles=6
+Model batched time: 522.00 ms
+PSNR: 39.09 dB
+
+device=cuda tiles=7
+Model batched time: 568.45 ms
+PSNR: 39.11 dB
+
+device=cuda tiles=8
+Model batched time: 530.53 ms
+PSNR: 39.10 dB
+
+device=cpu tiles=1
+Model batched time: 60.25 ms
+PSNR: 39.14 dB
+
+device=cpu tiles=2
+Model batched time: 49.32 ms
+PSNR: 39.13 dB
+
+device=cpu tiles=3
+Model batched time: 48.98 ms
+PSNR: 39.12 dB
+
+device=cpu tiles=4
+Model batched time: 44.81 ms
+PSNR: 39.12 dB
+
+device=cpu tiles=5
+Model batched time: 41.80 ms
+PSNR: 39.11 dB
+
+device=cpu tiles=6
+Model batched time: 50.02 ms
+PSNR: 39.09 dB
+
+device=cpu tiles=7
+Model batched time: 62.38 ms
+PSNR: 39.11 dB
+
+device=cpu tiles=8
+Model batched time: 71.98 ms
+PSNR: 39.10 dB
+
